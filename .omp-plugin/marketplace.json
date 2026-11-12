@@ -1,0 +1,16 @@
+{
+	"name": "jscop",
+	"owner": { "name": "JSCOP" },
+	"metadata": { "description": "JSCOP's OMP plugins" },
+	"plugins": [
+		{
+			"name": "omp-activity",
+			"source": "./",
+			"description": "Agent Hub-style activity rows for the OMP main transcript",
+			"version": "0.1.0",
+			"author": { "name": "JSCOP" },
+			"license": "MIT",
+			"keywords": ["omp", "plugin", "transcript", "compact", "activity"]
+		}
+	]
+}
