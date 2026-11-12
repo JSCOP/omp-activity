@@ -11,6 +11,8 @@ export interface ToolBlock {
 	result?: { content?: Array<{ type?: string; text?: string }>; details?: Record<string, unknown> };
 	isError: boolean;
 	isPartial: boolean;
+	/** write only: the target did not exist when the call started. Unknown (history) counts as an overwrite. */
+	created?: boolean;
 }
 
 export interface Row {
@@ -175,7 +177,11 @@ function parts(block: ToolBlock, cwd: string, settings: Settings): Parts {
 			p.arg = path(d.resolvedPath ?? a.path ?? a.file_path);
 			if (done && !block.isError) {
 				p.category = "change";
-				if (typeof a.content === "string") p.meta.push(theme.fg("success", `+${lineCount(a.content)}`));
+				if (typeof a.content === "string") {
+					const lines = lineCount(a.content);
+					// Only a new file's lines are all additions; an overwrite's real diff is unknown here.
+					p.meta.push(block.created ? theme.fg("success", `+${lines} new`) : theme.fg("dim", count(lines, "line")));
+				}
 			}
 			break;
 		case "task": {

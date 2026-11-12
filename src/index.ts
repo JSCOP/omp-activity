@@ -1,3 +1,5 @@
+import { existsSync } from "node:fs";
+import { resolve } from "node:path";
 import {
 	cfgExtensionTranscriptPresenters,
 	compactText,
@@ -147,6 +149,8 @@ export default function ompActivity(pi) {
 	const callRun = new Map<string, Run>();
 	const callTime = new Map<string, number>();
 	const advisorIds = new Set<string>();
+	/** write call id → target absent at start (new file). */
+	const writeCreated = new Map<string, boolean>();
 	let presenterHintShown = false;
 	let statsTimer: NodeJS.Timeout | undefined;
 
@@ -179,6 +183,7 @@ export default function ompActivity(pi) {
 		callRun.clear();
 		callTime.clear();
 		advisorIds.clear();
+		writeCreated.clear();
 		clearTimeout(statsTimer);
 		cwd = ctx?.sessionManager?.getCwd?.() ?? ctx?.cwd ?? cwd;
 		let entries: Array<{ type?: string; message?: Message }> = [];
@@ -293,6 +298,8 @@ export default function ompActivity(pi) {
 		callTime.set(e.toolCallId, Date.now());
 		attach(e.toolCallId, active, Date.now());
 		active.actions++;
+		const target = e.toolName === "write" ? e.args?.path : undefined;
+		if (typeof target === "string" && !target.includes("://")) writeCreated.set(e.toolCallId, !existsSync(resolve(cwd, target)));
 		const previous = active.newest.get(e.toolName);
 		active.newest.set(e.toolName, e.toolCallId);
 		if (previous && toolDisplay(settings, e.toolName) === "newest") refresh([previous]);
@@ -366,7 +373,12 @@ export default function ompActivity(pi) {
 		if (display === "newest" && running && (tool.isPartial || run.newest.get(tool.toolName) === tool.id)) return "full";
 
 		const at = callTime.get(tool.id);
-		const row = buildRow({ ...tool, isPartial: running && tool.isPartial }, at ? clock(at) : "", cwd, settings);
+		const row = buildRow(
+			{ ...tool, isPartial: running && tool.isPartial, created: writeCreated.get(tool.id) },
+			at ? clock(at) : "",
+			cwd,
+			settings,
+		);
 		// No run record: history the rebuild could not place, drawn as answered.
 		const answered = run ? !running && run.answered : true;
 		if (settings.mode === "live" && answered && row.category === "routine") return "hidden";

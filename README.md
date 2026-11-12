@@ -43,7 +43,7 @@ omp plugin install omp-activity@jscop
 
 - 시각: 도구가 실제로 실행된 시각. `/resume` 후에도 세션 기록의 시각을 씁니다.
 - 상태: `✓` 성공, `✗` 실패, `◌` 실행 중
-- 부가정보: edit `+추가|삭제`, write `+줄 수`, delete `-줄 수`, bash 실행 시간·종료 코드·`in <cwd>`, grep 일치 수/파일 수, glob 파일 수
+- 부가정보: edit `+추가|삭제`, write `+N new`(새 파일) 또는 `N lines`(덮어쓰기: 실제 변경 줄 수는 계산하지 않음), delete `-줄 수`, bash 실행 시간·종료 코드·`in <cwd>`, grep 일치 수/파일 수, glob 파일 수
 - `xd://` 장치 호출은 `write`가 아니라 장치 이름으로 표시합니다(예: `playwright_browser_tabs`).
 - 프로젝트 안의 경로는 상대 경로로 줄입니다(Windows 경로 포함).
 
