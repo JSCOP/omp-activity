@@ -1,4 +1,4 @@
-import { existsSync } from "node:fs";
+import { existsSync, unwatchFile, watchFile } from "node:fs";
 import { resolve } from "node:path";
 import {
 	cfgExtensionTranscriptPresenters,
@@ -161,13 +161,27 @@ export default function ompActivity(pi) {
 			// The session that owned this ui is gone.
 		}
 	};
-	const refreshAll = () => refresh([...callRun.keys(), ...advisorIds]);
+	// callTime also holds blocks drawn before any run claimed them (history drawn ahead of session_start).
+	const drawnIds = () => new Set([...callTime.keys(), ...callRun.keys(), ...advisorIds]);
+	const refreshAll = () => refresh(drawnIds());
 
+	/** Read-modify-write: another session may have saved since this one loaded its copy. */
 	function update(change: Partial<Settings>): void {
-		settings = { ...settings, ...change };
+		settings = { ...loadSettings(), ...change };
 		saveSettings(settings);
 		refreshAll();
 	}
+
+	// Every running session follows a change saved by any of them, as omp's own settings do.
+	// The cycle shortcut is bound once at load, so a changed `cycleKey` still needs a restart.
+	const onConfigChange = () => {
+		const next = loadSettings();
+		if (JSON.stringify(next) === JSON.stringify(settings)) return;
+		settings = next;
+		refreshAll();
+	};
+	watchFile(CONFIG_PATH, { interval: 1000, persistent: false }, onConfigChange);
+	pi.on("session_shutdown", () => unwatchFile(CONFIG_PATH, onConfigChange));
 
 	function attach(id: string, run: Run, at: number): void {
 		if (!callRun.has(id)) {
@@ -177,8 +191,12 @@ export default function ompActivity(pi) {
 		if (!callTime.has(id)) callTime.set(id, at);
 	}
 
-	/** Rebuild runs, call times and outcomes from the session branch (resume, tree, branch, compaction). */
+	/**
+	 * Rebuild runs, call times and outcomes from the session branch (resume, tree, branch, compaction),
+	 * then redraw both the blocks drawn before (they may hold first-seen times) and the rebuilt ones.
+	 */
 	function rebuild(ctx): void {
+		const before = drawnIds();
 		active = undefined;
 		callRun.clear();
 		callTime.clear();
@@ -190,6 +208,7 @@ export default function ompActivity(pi) {
 		try {
 			entries = ctx?.sessionManager?.getBranch?.() ?? [];
 		} catch {
+			refresh(before);
 			return;
 		}
 		let run: Run | undefined;
@@ -220,6 +239,7 @@ export default function ompActivity(pi) {
 			}
 		}
 		close();
+		refresh(new Set([...before, ...drawnIds()]));
 	}
 
 	function hintPresenterSetting(ctx): void {
@@ -392,7 +412,7 @@ export default function ompActivity(pi) {
 		description: "Cycle omp-activity display: compact / live / clear / off",
 		handler: ctx => {
 			if (ctx?.ui) ui = ctx.ui;
-			update({ mode: nextMode(settings.mode) });
+			update({ mode: nextMode(loadSettings().mode) });
 			ui?.notify?.(`Activity: ${settings.mode}`, "info");
 		},
 	});

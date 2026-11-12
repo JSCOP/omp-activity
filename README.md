@@ -68,7 +68,7 @@ omp plugin install omp-activity@jscop
 
 도구별 표시 기본값: `ask`는 `open`(항상 카드), `wait`/`todo`는 `newest`(작업 중 최신 호출만 카드), 나머지는 `rows`.
 
-설정은 `~/.omp/agent/omp-activity.json`에 저장됩니다. 단축키를 바꾸려면 이 파일의 `cycleKey`를 고치고 재시작하세요.
+설정은 `~/.omp/agent/omp-activity.json`에 저장되고, 실행 중인 모든 세션이 1초 안에 같은 설정을 따릅니다. 단축키(`cycleKey`)만은 바꾼 뒤 재시작해야 합니다.
 
 ## 제거
 
