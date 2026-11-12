@@ -34,6 +34,8 @@ const TOOL_COLOR: Record<string, string> = {
 	git: "accent",
 	todo: "muted",
 	wait: "muted",
+	mcp: "mdLink",
+	xd: "mdLink",
 };
 
 const COMMIT_BANNER = /^\[(?:detached HEAD|[^\]\s]+)(?: \(root-commit\))? ([0-9a-f]{4,64})\] ?(.*)$/m;
@@ -106,11 +108,13 @@ function parts(block: ToolBlock, cwd: string, settings: Settings): Parts {
 	const path = (p: unknown) => displayPath(str(p), cwd, settings.compactPaths);
 	const p: Parts = { name: block.toolName, arg: "", meta: [], category: "routine" };
 
+	// A write to xd://<device> invokes that device (MCP tools included); it changes no file.
+	// The short name keeps the tool column aligned; the device goes in the argument.
 	const rawPath = str(a.path ?? a.file_path);
-	if ((block.toolName === "read" || block.toolName === "write") && rawPath.startsWith("xd://")) {
-		const [device = "", ...rest] = rawPath.slice(5).split("/");
-		p.name = device.replace(/^mcp__/, "") || block.toolName;
-		p.arg = rest.join("/");
+	if (block.toolName === "write" && rawPath.startsWith("xd://")) {
+		const device = rawPath.slice(5);
+		p.name = device.startsWith("mcp__") ? "mcp" : "xd";
+		p.arg = device.replace(/^mcp__/, "");
 		return p;
 	}
 
