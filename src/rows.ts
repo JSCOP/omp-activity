@@ -48,6 +48,20 @@ function clip(text: string, max: number): string {
 	return text.length > max ? `${text.slice(0, max - 1)}…` : text;
 }
 
+/** Cut to `max` terminal columns (wide CJK characters count two). */
+function clipWidth(text: string, max: number): string {
+	if (Bun.stringWidth(text) <= max) return text;
+	let out = "";
+	let width = 0;
+	for (const ch of text) {
+		const w = Bun.stringWidth(ch);
+		if (width + w > max - 1) break;
+		out += ch;
+		width += w;
+	}
+	return `${out}…`;
+}
+
 function lineCount(text: string): number {
 	if (!text) return 0;
 	const lines = text.split("\n");
@@ -206,7 +220,8 @@ function parts(block: ToolBlock, cwd: string, settings: Settings): Parts {
 	return p;
 }
 
-export function buildRow(block: ToolBlock, time: string, cwd: string, settings: Settings): Row {
+/** `width`: terminal columns; the argument gets whatever the rest of the row leaves, so the meta after it stays visible. */
+export function buildRow(block: ToolBlock, time: string, cwd: string, settings: Settings, width: number): Row {
 	const p = parts(block, cwd, settings);
 	const intent = str(block.args?.i);
 	const status = block.isPartial
@@ -218,10 +233,15 @@ export function buildRow(block: ToolBlock, time: string, cwd: string, settings: 
 
 	let main = p.main ?? (settings.showIntent && intent ? intent : p.arg || intent);
 	if (block.isError) main = theme.fg("error", main);
-	const pieces = [main];
-	if (!p.main && settings.showIntent && intent && settings.showArgs && p.arg) pieces.push(theme.fg("muted", clip(p.arg, 90)));
-	pieces.push(...p.meta);
-
+	const sep = theme.fg("dim", "  · ");
 	const head = settings.showTime && time ? `${theme.fg("dim", time)} ` : "";
-	return { label: `${head}${status} ${name} ${pieces.join(theme.fg("dim", "  · "))}`, category: p.category };
+	const before = `${head}${status} ${name} ${main}`;
+	const after = p.meta.map(m => `${sep}${m}`).join("");
+	let arg = "";
+	if (!p.main && settings.showIntent && intent && settings.showArgs && p.arg) {
+		// omp draws "• " before the label and cuts the row at the terminal edge.
+		const room = width - 2 - Bun.stringWidth(`${before}${after}`) - Bun.stringWidth(sep);
+		if (room >= 8) arg = `${sep}${theme.fg("muted", clipWidth(p.arg, room))}`;
+	}
+	return { label: `${before}${arg}${after}`, category: p.category };
 }

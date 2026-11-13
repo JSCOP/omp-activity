@@ -170,6 +170,41 @@ export default function ompActivity(pi) {
 		new Set([...callTime.keys(), ...callRun.keys(), ...advisorIds, ...seenIds, ...(subagent?.times.keys() ?? [])]);
 	const refreshAll = () => refresh(drawnIds());
 
+	/** Rows opened to omp's full card with `Alt+E`, by tool call id. */
+	const opened = new Set<string>();
+	/** Rows drawn compact in the current view, newest by `at`: what the `Alt+E` picker lists. */
+	const listed = new Map<string, { at: number; text: string }>();
+	const compactRow = (id: string, at: number, label: string) => {
+		listed.set(id, { at, text: label.replace(/\x1b\[[0-9;]*m/g, "") });
+		return { compact: { label: compactText(styledSpans(label)) } };
+	};
+
+	/** `Alt+E` / `/activity open`: toggle one row between its compact line and omp's full card. */
+	async function pickRow(ctx): Promise<void> {
+		const rows = [...listed].sort((a, b) => b[1].at - a[1].at).slice(0, 80);
+		if (rows.length === 0) return ctx.ui.notify("omp-activity: 펼칠 도구 줄이 없습니다", "info");
+		const foldAll = opened.size > 0 ? `모두 접기 (${opened.size}개 펼침)` : undefined;
+		const items = rows.map(([id, row]) => `${opened.has(id) ? "▾" : "▸"} ${row.text}`);
+		const picked = await ctx.ui.select("펼치거나 접을 줄 (▸ 접힘 / ▾ 펼침, 최근 순)", foldAll ? [foldAll, ...items] : items);
+		if (!picked) return;
+		if (picked === foldAll) {
+			const ids = [...opened];
+			opened.clear();
+			return refresh(ids);
+		}
+		const [id] = rows[items.indexOf(picked)];
+		if (!opened.delete(id)) opened.add(id);
+		refresh([id]);
+	}
+
+	/** Rows are fitted to the terminal width; redraw them once a resize settles. */
+	let resizeTimer: NodeJS.Timeout | undefined;
+	const onResize = () => {
+		clearTimeout(resizeTimer);
+		resizeTimer = setTimeout(refreshAll, 150);
+	};
+	let resizeWatched = false;
+
 	/** Read-modify-write: another session may have saved since this one loaded its copy. */
 	function update(change: Partial<Settings>): void {
 		settings = { ...loadSettings(), ...change };
@@ -186,7 +221,11 @@ export default function ompActivity(pi) {
 		refreshAll();
 	};
 	watchFile(CONFIG_PATH, { interval: 1000, persistent: false }, onConfigChange);
-	pi.on("session_shutdown", () => unwatchFile(CONFIG_PATH, onConfigChange));
+	pi.on("session_shutdown", () => {
+		unwatchFile(CONFIG_PATH, onConfigChange);
+		if (resizeWatched) process.stdout.off("resize", onResize);
+		clearTimeout(resizeTimer);
+	});
 
 	function attach(id: string, run: Run, at: number): void {
 		if (!callRun.has(id)) {
@@ -296,14 +335,17 @@ export default function ompActivity(pi) {
 	 */
 	function presentSubagentCall(tool: ToolBlock, view: SubagentView) {
 		if (!settings.subagentView) return undefined;
+		if (opened.has(tool.id)) return "full";
 		const display: ToolDisplay = toolDisplay(settings, tool.toolName);
 		if (display === "open" || (display === "newest" && tool.isPartial)) return "full";
-		if (display === "hide") return "hidden";
 		let at = view.times.get(tool.id);
 		if (at === undefined) view.times.set(tool.id, (at = Date.now()));
-		const row = buildRow(tool, clock(at), view.cwd, settings);
-		if (settings.mode === "clear" && row.category !== "git") return "hidden";
-		return { compact: { label: compactText(styledSpans(row.label)) } };
+		const row = buildRow(tool, clock(at), view.cwd, settings, process.stdout.columns || 120);
+		if (display === "hide" || (settings.mode === "clear" && row.category !== "git")) {
+			listed.delete(tool.id);
+			return "hidden";
+		}
+		return compactRow(tool.id, at, row.label);
 	}
 
 	track("session_start", (_e, ctx) => {
@@ -311,10 +353,15 @@ export default function ompActivity(pi) {
 		hintPresenterSetting(ctx);
 		// Only the interactive main session draws a focused subagent view; subagent sessions load this plugin too.
 		if (!ctx?.hasUI) return;
+		if (!resizeWatched) {
+			process.stdout.on("resize", onResize);
+			resizeWatched = true;
+		}
 		setSubagentViewHook({
 			enabled: () => settings.subagentView && settings.mode !== "off",
 			onView: view => {
 				subagent = view;
+				listed.clear(); // the new view's rows list themselves as they draw
 			},
 		});
 		installSubagentView();
@@ -415,10 +462,10 @@ export default function ompActivity(pi) {
 			else seenIds.add(tool.id);
 		}
 		if (settings.mode === "off") return undefined;
+		if (opened.has(tool.id)) return "full";
 
 		const display: ToolDisplay = toolDisplay(settings, tool.toolName);
 		if (display === "open") return "full";
-		if (display === "hide") return "hidden";
 		const run = callRun.get(tool.id);
 		const running = run?.active === true;
 		if (display === "newest" && running && (tool.isPartial || run.newest.get(tool.toolName) === tool.id)) return "full";
@@ -429,12 +476,19 @@ export default function ompActivity(pi) {
 			at ? clock(at) : "",
 			cwd,
 			settings,
+			process.stdout.columns || 120,
 		);
 		// No run record: history the rebuild could not place, drawn as answered.
 		const answered = run ? !running && run.answered : true;
-		if (settings.mode === "live" && answered && row.category === "routine") return "hidden";
-		if (settings.mode === "clear" && row.category !== "git") return "hidden";
-		return { compact: { label: compactText(styledSpans(row.label)) } };
+		if (
+			display === "hide" ||
+			(settings.mode === "live" && answered && row.category === "routine") ||
+			(settings.mode === "clear" && row.category !== "git")
+		) {
+			listed.delete(tool.id);
+			return "hidden";
+		}
+		return compactRow(tool.id, at ?? 0, row.label);
 	});
 
 	const nextMode = (mode: Mode): Mode => MODES[(MODES.indexOf(mode) + 1) % MODES.length];
@@ -445,6 +499,14 @@ export default function ompActivity(pi) {
 			if (ctx?.ui) ui = ctx.ui;
 			update({ mode: nextMode(loadSettings().mode) });
 			ui?.notify?.(`Activity: ${settings.mode}`, "info");
+		},
+	});
+
+	pi.registerShortcut("alt+e", {
+		description: "omp-activity: open or fold one tool row",
+		handler: async ctx => {
+			if (ctx?.ui) ui = ctx.ui;
+			await pickRow(ctx);
 		},
 	});
 
@@ -464,6 +526,7 @@ export default function ompActivity(pi) {
 			if (ctx?.ui) ui = ctx.ui;
 			const [key, value, extra] = args.trim().split(/\s+/).filter(Boolean);
 			const notify = (m: string) => ctx.ui.notify(m, "info");
+			if (key === "open") return pickRow(ctx);
 			if (key) {
 				if (key === "mode" && MODES.includes(value as Mode)) update({ mode: value as Mode });
 				else if (key === "tool" && value && TOOL_DISPLAYS.includes(extra as ToolDisplay))
@@ -472,7 +535,7 @@ export default function ompActivity(pi) {
 					update({ [key]: value === "on" } as Partial<Settings>);
 				else
 					return notify(
-						`usage: /activity [mode ${MODES.join("|")}] [<${BOOLEAN_OPTIONS.map(([k]) => k).join("|")}> on|off] [tool <name> ${TOOL_DISPLAYS.join("|")}]`,
+						`usage: /activity [open] [mode ${MODES.join("|")}] [<${BOOLEAN_OPTIONS.map(([k]) => k).join("|")}> on|off] [tool <name> ${TOOL_DISPLAYS.join("|")}]`,
 					);
 				return notify(`omp-activity: ${key} ${value}${extra ? ` ${extra}` : ""} (saved to ${CONFIG_PATH})`);
 			}
