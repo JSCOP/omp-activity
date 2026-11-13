@@ -20,6 +20,7 @@ import {
 	toolDisplay,
 } from "./config";
 import { buildRow, type ToolBlock } from "./rows";
+import { installSubagentView, type SubagentView, setSubagentViewHook } from "./subagent-view";
 
 const STATS_TYPE = "omp-activity:stats";
 const STATS_CONTENT = "[omp-activity run stats]";
@@ -161,8 +162,12 @@ export default function ompActivity(pi) {
 			// The session that owned this ui is gone.
 		}
 	};
-	// callTime also holds blocks drawn before any run claimed them (history drawn ahead of session_start).
-	const drawnIds = () => new Set([...callTime.keys(), ...callRun.keys(), ...advisorIds]);
+	/** Tool blocks drawn while no main-session run was active: history ahead of session_start (rebuild then times them). */
+	const seenIds = new Set<string>();
+	/** The focused subagent view, while one is shown. */
+	let subagent: SubagentView | undefined;
+	const drawnIds = () =>
+		new Set([...callTime.keys(), ...callRun.keys(), ...advisorIds, ...seenIds, ...(subagent?.times.keys() ?? [])]);
 	const refreshAll = () => refresh(drawnIds());
 
 	/** Read-modify-write: another session may have saved since this one loaded its copy. */
@@ -285,9 +290,34 @@ export default function ompActivity(pi) {
 			handler(e, ctx);
 		});
 
+	/**
+	 * A focused subagent's tool call. Its runs are not this session's, so `live` keeps every row (the subagent's
+	 * run state is unknown here) while `clear` still keeps only commits; per-tool display applies as usual.
+	 */
+	function presentSubagentCall(tool: ToolBlock, view: SubagentView) {
+		if (!settings.subagentView) return undefined;
+		const display: ToolDisplay = toolDisplay(settings, tool.toolName);
+		if (display === "open" || (display === "newest" && tool.isPartial)) return "full";
+		if (display === "hide") return "hidden";
+		let at = view.times.get(tool.id);
+		if (at === undefined) view.times.set(tool.id, (at = Date.now()));
+		const row = buildRow(tool, clock(at), view.cwd, settings);
+		if (settings.mode === "clear" && row.category !== "git") return "hidden";
+		return { compact: { label: compactText(styledSpans(row.label)) } };
+	}
+
 	track("session_start", (_e, ctx) => {
 		rebuild(ctx);
 		hintPresenterSetting(ctx);
+		// Only the interactive main session draws a focused subagent view; subagent sessions load this plugin too.
+		if (!ctx?.hasUI) return;
+		setSubagentViewHook({
+			enabled: () => settings.subagentView && settings.mode !== "off",
+			onView: view => {
+				subagent = view;
+			},
+		});
+		installSubagentView();
 	});
 	track("session_switch", (e, ctx) => {
 		if (e?.reason !== "fork") rebuild(ctx);
@@ -379,9 +409,10 @@ export default function ompActivity(pi) {
 		if (block.type !== "toolCall") return undefined;
 
 		const tool = block as ToolBlock;
+		if (subagent) return settings.mode === "off" ? undefined : presentSubagentCall(tool, subagent);
 		if (!callRun.has(tool.id)) {
 			if (active?.active) attach(tool.id, active, Date.now());
-			else callTime.set(tool.id, callTime.get(tool.id) ?? Date.now());
+			else seenIds.add(tool.id);
 		}
 		if (settings.mode === "off") return undefined;
 
@@ -424,6 +455,7 @@ export default function ompActivity(pi) {
 		["stats", "실행 통계 줄"],
 		["compactPaths", "프로젝트 상대 경로"],
 		["compactAdvisor", "advisor nit/concern 한 줄"],
+		["subagentView", "서브에이전트 화면(Alt+A)도 한 줄 표시"],
 	];
 
 	pi.registerCommand("activity", {

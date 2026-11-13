@@ -22,6 +22,8 @@ export interface Settings {
 	compactAdvisor: boolean;
 	tools: Record<string, ToolDisplay>;
 	cycleKey: string;
+	/** Draw these rows in a focused subagent view too (omp itself draws stock cards there). */
+	subagentView: boolean;
 }
 
 export const MODES: readonly Mode[] = ["compact", "live", "clear", "off"];
@@ -39,12 +41,13 @@ export const DEFAULTS: Settings = {
 	compactAdvisor: false,
 	tools: {},
 	cycleKey: "alt+c",
+	subagentView: true,
 };
 
 const agentDir = process.env.PI_CODING_AGENT_DIR || join(homedir(), ".omp", "agent");
 export const CONFIG_PATH = join(agentDir, "omp-activity.json");
 
-const BOOLEAN_KEYS = ["showTime", "showIntent", "showArgs", "stats", "compactPaths", "compactAdvisor"] as const;
+const BOOLEAN_KEYS = ["showTime", "showIntent", "showArgs", "stats", "compactPaths", "compactAdvisor", "subagentView"] as const;
 
 /** Read the config, keeping only well-typed fields; a missing or broken file yields the defaults. */
 export function loadSettings(): Settings {

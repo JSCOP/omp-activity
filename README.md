@@ -18,7 +18,7 @@ OMP 메인 채팅의 도구 호출을 Agent Hub "Recent activity"처럼 한 줄�
 OMP 18.18.9 이상이 필요합니다.
 
 ```bash
-omp plugin marketplace add <이 저장소 경로 또는 owner/repo>
+omp plugin marketplace add JSCOP/omp-activity
 omp plugin install omp-activity@jscop
 ```
 
@@ -51,6 +51,16 @@ omp plugin install omp-activity@jscop
 
 답변 아래에 한 줄: 도구 호출 수, 실패 수, 보낸 토큰(캐시 포함), 받은 토큰, 걸린 시간, 끝난 시각. 실패가 있으면 경고색입니다. 화면에만 보이고 모델 컨텍스트에는 들어가지 않습니다.
 
+## 서브에이전트 화면 (`Alt+A` → 선택)
+
+OMP는 서브에이전트 화면에서 플러그인 표시를 끄고 기본 카드로 그립니다. 이 플러그인은 그 화면을 열 때 OMP가 지운 표시 플러그인 목록을 다시 넣어서, 서브에이전트의 도구 호출도 같은 한 줄로 보이게 합니다. OMP 파일은 건드리지 않고 실행 중에만 적용되므로 OMP를 업데이트해도 그대로 동작합니다.
+
+- 시각: 서브에이전트 세션 기록의 시각, 화면을 보는 중에 새로 생긴 호출은 처음 그린 시각
+- `live` 모드여도 서브에이전트 화면은 모든 줄을 남깁니다(서브에이전트 실행이 끝났는지 이 화면에서는 알 수 없음). `clear`는 커밋만 남깁니다.
+- 끄려면 `/activity subagentView off` (다음에 서브에이전트 화면을 열 때부터 적용)
+- OMP 내부 메서드(`InteractiveMode.renderInitialMessages`)를 감싸는 방식이라, OMP가 이 구조를 바꾸면 서브에이전트 화면만 다시 기본 카드로 돌아갑니다. 메인 화면은 영향이 없습니다.
+- `display.hideToolActivity`가 켜져 있으면 서브에이전트 화면에서도 도구 줄이 숨겨집니다.
+
 ## 설정 (`/activity`)
 
 `/activity`를 입력하면 메뉴가 열립니다. 직접 지정도 됩니다.
@@ -63,6 +73,7 @@ omp plugin install omp-activity@jscop
 /activity stats off
 /activity compactPaths off
 /activity compactAdvisor on   # advisor nit/concern을 한 줄로
+/activity subagentView off    # 서브에이전트 화면은 OMP 기본 카드로
 /activity tool bash open      # rows | newest | open | hide
 ```
 
