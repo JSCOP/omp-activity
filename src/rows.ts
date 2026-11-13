@@ -220,7 +220,10 @@ function parts(block: ToolBlock, cwd: string, settings: Settings): Parts {
 	return p;
 }
 
-/** `width`: terminal columns; the argument gets whatever the rest of the row leaves, so the meta after it stays visible. */
+/**
+ * `width`: terminal columns. The meta (`+27|5`, `0.1s`, match counts) is pinned to the right edge; the argument,
+ * then the intent, are cut to make room for it.
+ */
 export function buildRow(block: ToolBlock, time: string, cwd: string, settings: Settings, width: number): Row {
 	const p = parts(block, cwd, settings);
 	const intent = str(block.args?.i);
@@ -230,18 +233,22 @@ export function buildRow(block: ToolBlock, time: string, cwd: string, settings: 
 			? theme.fg("error", "✗")
 			: theme.fg("success", "✓");
 	const name = theme.fg(TOOL_COLOR[p.name] ?? "toolTitle", `\x1b[1m${p.name.padEnd(5)}\x1b[22m`);
-
-	let main = p.main ?? (settings.showIntent && intent ? intent : p.arg || intent);
-	if (block.isError) main = theme.fg("error", main);
 	const sep = theme.fg("dim", "  · ");
-	const head = settings.showTime && time ? `${theme.fg("dim", time)} ` : "";
-	const before = `${head}${status} ${name} ${main}`;
+	const head = `${settings.showTime && time ? `${theme.fg("dim", time)} ` : ""}${status} ${name} `;
 	const after = p.meta.map(m => `${sep}${m}`).join("");
+	// omp draws "• " before the label; one more column stays free so the terminal never wraps the row.
+	const avail = width - 3;
+	const fixed = Bun.stringWidth(head) + Bun.stringWidth(after);
+
+	// p.main (a commit banner) carries its own colors and is short; plain text is cut to fit.
+	let main = p.main ?? clipWidth(settings.showIntent && intent ? intent : p.arg || intent, Math.max(10, avail - fixed));
+	if (block.isError) main = theme.fg("error", main);
 	let arg = "";
 	if (!p.main && settings.showIntent && intent && settings.showArgs && p.arg) {
-		// omp draws "• " before the label and cuts the row at the terminal edge.
-		const room = width - 2 - Bun.stringWidth(`${before}${after}`) - Bun.stringWidth(sep);
+		const room = avail - fixed - Bun.stringWidth(main) - Bun.stringWidth(sep);
 		if (room >= 8) arg = `${sep}${theme.fg("muted", clipWidth(p.arg, room))}`;
 	}
-	return { label: `${before}${arg}${after}`, category: p.category };
+	const left = `${head}${main}${arg}`;
+	const pad = after ? " ".repeat(Math.max(0, avail - Bun.stringWidth(left) - Bun.stringWidth(after))) : "";
+	return { label: `${left}${pad}${after}`, category: p.category };
 }
