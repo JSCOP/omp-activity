@@ -176,7 +176,8 @@ export default function ompActivity(pi) {
 	const listed = new Map<string, { at: number; text: string }>();
 	/** List the row, then draw it: omp's full card when opened, else the compact line. */
 	const presentRow = (id: string, at: number, label: string) => {
-		listed.set(id, { at, text: label.replace(/\x1b\[[0-9;]*m/g, "") });
+		// The picker is narrower than the transcript: drop the right-edge padding.
+		listed.set(id, { at, text: label.replace(/\x1b\[[0-9;]*m/g, "").replace(/ {3,}/g, "  ") });
 		return opened.has(id) ? "full" : { compact: { label: compactText(styledSpans(label)) } };
 	};
 

@@ -234,8 +234,8 @@ export function buildRow(block: ToolBlock, time: string, cwd: string, settings: 
 	const sep = theme.fg("dim", "  · ");
 	const head = `${settings.showTime && time ? `${theme.fg("dim", time)} ` : ""}${status} ${name} `;
 	const after = p.meta.map(m => `${sep}${m}`).join("");
-	// omp draws "• " before the label; one more column stays free so the terminal never wraps the row.
-	const avail = width - 3;
+	// omp draws "• " before the label inside the chat's side margins; keep a spare column so the row never reaches the edge.
+	const avail = Math.max(20, width - 5);
 	// Reserved first: the meta at the right edge. The main text, argument and cwd share what is left, in that order.
 	let room = avail - Bun.stringWidth(head) - Bun.stringWidth(after);
 

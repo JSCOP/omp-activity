@@ -7,7 +7,7 @@
 			"name": "omp-activity",
 			"source": "./",
 			"description": "Agent Hub-style activity rows for the OMP main transcript",
-			"version": "0.3.3",
+			"version": "0.3.4",
 			"author": { "name": "JSCOP" },
 			"license": "MIT",
 			"keywords": ["omp", "plugin", "transcript", "compact", "activity"]
