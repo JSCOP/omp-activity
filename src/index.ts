@@ -172,17 +172,18 @@ export default function ompActivity(pi) {
 
 	/** Rows opened to omp's full card with `Alt+E`, by tool call id. */
 	const opened = new Set<string>();
-	/** Rows drawn compact in the current view, newest by `at`: what the `Alt+E` picker lists. */
+	/** Rows of the current view the `Alt+E` picker lists (opened ones included), newest by `at`. */
 	const listed = new Map<string, { at: number; text: string }>();
-	const compactRow = (id: string, at: number, label: string) => {
+	/** List the row, then draw it: omp's full card when opened, else the compact line. */
+	const presentRow = (id: string, at: number, label: string) => {
 		listed.set(id, { at, text: label.replace(/\x1b\[[0-9;]*m/g, "") });
-		return { compact: { label: compactText(styledSpans(label)) } };
+		return opened.has(id) ? "full" : { compact: { label: compactText(styledSpans(label)) } };
 	};
 
 	/** `Alt+E` / `/activity open`: toggle one row between its compact line and omp's full card. */
 	async function pickRow(ctx): Promise<void> {
 		const rows = [...listed].sort((a, b) => b[1].at - a[1].at).slice(0, 80);
-		if (rows.length === 0) return ctx.ui.notify("omp-activity: 펼칠 도구 줄이 없습니다", "info");
+		if (rows.length === 0 && opened.size === 0) return ctx.ui.notify("omp-activity: 펼칠 도구 줄이 없습니다", "info");
 		const foldAll = opened.size > 0 ? `모두 접기 (${opened.size}개 펼침)` : undefined;
 		const items = rows.map(([id, row]) => `${opened.has(id) ? "▾" : "▸"} ${row.text}`);
 		const picked = await ctx.ui.select("펼치거나 접을 줄 (▸ 접힘 / ▾ 펼침, 최근 순)", foldAll ? [foldAll, ...items] : items);
@@ -335,17 +336,16 @@ export default function ompActivity(pi) {
 	 */
 	function presentSubagentCall(tool: ToolBlock, view: SubagentView) {
 		if (!settings.subagentView) return undefined;
-		if (opened.has(tool.id)) return "full";
 		const display: ToolDisplay = toolDisplay(settings, tool.toolName);
 		if (display === "open" || (display === "newest" && tool.isPartial)) return "full";
 		let at = view.times.get(tool.id);
 		if (at === undefined) view.times.set(tool.id, (at = Date.now()));
 		const row = buildRow(tool, clock(at), view.cwd, settings, process.stdout.columns || 120);
-		if (display === "hide" || (settings.mode === "clear" && row.category !== "git")) {
+		if (!opened.has(tool.id) && (display === "hide" || (settings.mode === "clear" && row.category !== "git"))) {
 			listed.delete(tool.id);
 			return "hidden";
 		}
-		return compactRow(tool.id, at, row.label);
+		return presentRow(tool.id, at, row.label);
 	}
 
 	track("session_start", (_e, ctx) => {
@@ -462,8 +462,6 @@ export default function ompActivity(pi) {
 			else seenIds.add(tool.id);
 		}
 		if (settings.mode === "off") return undefined;
-		if (opened.has(tool.id)) return "full";
-
 		const display: ToolDisplay = toolDisplay(settings, tool.toolName);
 		if (display === "open") return "full";
 		const run = callRun.get(tool.id);
@@ -481,14 +479,15 @@ export default function ompActivity(pi) {
 		// No run record: history the rebuild could not place, drawn as answered.
 		const answered = run ? !running && run.answered : true;
 		if (
-			display === "hide" ||
-			(settings.mode === "live" && answered && row.category === "routine") ||
-			(settings.mode === "clear" && row.category !== "git")
+			!opened.has(tool.id) &&
+			(display === "hide" ||
+				(settings.mode === "live" && answered && row.category === "routine") ||
+				(settings.mode === "clear" && row.category !== "git"))
 		) {
 			listed.delete(tool.id);
 			return "hidden";
 		}
-		return compactRow(tool.id, at ?? 0, row.label);
+		return presentRow(tool.id, at ?? 0, row.label);
 	});
 
 	const nextMode = (mode: Mode): Mode => MODES[(MODES.indexOf(mode) + 1) % MODES.length];
