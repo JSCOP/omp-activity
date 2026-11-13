@@ -44,10 +44,6 @@ function str(value: unknown): string {
 	return typeof value === "string" ? value.replace(/\s+/g, " ").trim() : "";
 }
 
-function clip(text: string, max: number): string {
-	return text.length > max ? `${text.slice(0, max - 1)}…` : text;
-}
-
 /** Cut to `max` terminal columns (wide CJK characters count two). */
 function clipWidth(text: string, max: number): string {
 	if (Bun.stringWidth(text) <= max) return text;
@@ -112,7 +108,9 @@ interface Parts {
 	meta: string[];
 	category: Category;
 	/** Replaces intent/arg as the main text (git commits). */
-	main?: string;
+	commit?: { hash: string; message: string };
+	/** bash working directory: shown only when the row has room left after everything else. */
+	cwd?: string;
 }
 
 function parts(block: ToolBlock, cwd: string, settings: Settings): Parts {
@@ -154,7 +152,7 @@ function parts(block: ToolBlock, cwd: string, settings: Settings): Parts {
 		case "bash": {
 			const command = str(a.command);
 			p.arg = command;
-			if (a.cwd) p.meta.push(theme.fg("dim", `in ${path(a.cwd)}`));
+			if (a.cwd) p.cwd = path(a.cwd);
 			if (done) {
 				const time = duration(d.wallTimeMs);
 				if (time) p.meta.push(theme.fg("dim", time));
@@ -165,7 +163,7 @@ function parts(block: ToolBlock, cwd: string, settings: Settings): Parts {
 				if (banner) {
 					p.name = "git";
 					p.category = "git";
-					p.main = `commit ${theme.fg("warning", `\x1b[1m${banner[1]}\x1b[22m`)} ${clip(str(banner[2]), 80)}`;
+					p.commit = { hash: banner[1], message: str(banner[2]) };
 				}
 			}
 			break;
@@ -238,17 +236,33 @@ export function buildRow(block: ToolBlock, time: string, cwd: string, settings: 
 	const after = p.meta.map(m => `${sep}${m}`).join("");
 	// omp draws "• " before the label; one more column stays free so the terminal never wraps the row.
 	const avail = width - 3;
-	const fixed = Bun.stringWidth(head) + Bun.stringWidth(after);
+	// Reserved first: the meta at the right edge. The main text, argument and cwd share what is left, in that order.
+	let room = avail - Bun.stringWidth(head) - Bun.stringWidth(after);
 
-	// p.main (a commit banner) carries its own colors and is short; plain text is cut to fit.
-	let main = p.main ?? clipWidth(settings.showIntent && intent ? intent : p.arg || intent, Math.max(10, avail - fixed));
-	if (block.isError) main = theme.fg("error", main);
-	let arg = "";
-	if (!p.main && settings.showIntent && intent && settings.showArgs && p.arg) {
-		const room = avail - fixed - Bun.stringWidth(main) - Bun.stringWidth(sep);
-		if (room >= 8) arg = `${sep}${theme.fg("muted", clipWidth(p.arg, room))}`;
+	let main: string;
+	if (p.commit) {
+		const prefix = `commit ${theme.fg("warning", `\x1b[1m${p.commit.hash}\x1b[22m`)}`;
+		const left = room - Bun.stringWidth(prefix) - 1;
+		main = left >= 4 ? `${prefix} ${clipWidth(p.commit.message, left)}` : prefix;
+	} else {
+		main = clipWidth(settings.showIntent && intent ? intent : p.arg || intent, Math.max(1, room));
 	}
-	const left = `${head}${main}${arg}`;
+	room -= Bun.stringWidth(main);
+	if (block.isError) main = theme.fg("error", main);
+
+	let extra = "";
+	const optional: Array<[text: string, color: string]> = [
+		[!p.commit && settings.showIntent && intent && settings.showArgs ? p.arg : "", "muted"],
+		[p.cwd ? `in ${p.cwd}` : "", "dim"],
+	];
+	for (const [text, color] of optional) {
+		const fit = room - Bun.stringWidth(sep);
+		if (!text || fit < 8) continue;
+		const piece = clipWidth(text, fit);
+		extra += `${sep}${theme.fg(color, piece)}`;
+		room -= Bun.stringWidth(sep) + Bun.stringWidth(piece);
+	}
+	const left = `${head}${main}${extra}`;
 	const pad = after ? " ".repeat(Math.max(0, avail - Bun.stringWidth(left) - Bun.stringWidth(after))) : "";
 	return { label: `${left}${pad}${after}`, category: p.category };
 }
