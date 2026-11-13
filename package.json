@@ -1,6 +1,6 @@
 {
 	"name": "omp-activity",
-	"version": "0.2.0",
+	"version": "0.2.1",
 	"description": "Agent Hub-style activity rows for the OMP main transcript: timestamp, status, tool, intent, with compact/live/clear modes and a run stats row",
 	"type": "module",
 	"main": "src/index.ts",

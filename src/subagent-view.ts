@@ -54,15 +54,25 @@ export function installSubagentView(): boolean {
 	const original = proto?.renderInitialMessages;
 	if (typeof original !== "function" || typeof proto.refreshTranscriptPresentation !== "function") return false;
 
-	const sync = mode => {
+	const isSubagentView = mode => !mode.collabGuest && mode.viewSession !== mode.session;
+	/**
+	 * Before the render: the focus controller has already switched `viewSession`, so the presenter must answer for
+	 * the new view from the first block drawn (a stale subagent state would mis-time main blocks and keep `live` rows).
+	 */
+	const enter = mode => {
 		try {
-			const subagent = !mode.collabGuest && mode.viewSession !== mode.session;
-			const hook = store.hook;
-			hook?.onView(
-				subagent ? { cwd: mode.viewSession.sessionManager?.getCwd?.() ?? "", times: callTimes(mode.viewSession) } : undefined,
+			const view = mode.viewSession;
+			store.hook?.onView(
+				isSubagentView(mode) ? { cwd: view.sessionManager?.getCwd?.() ?? "", times: callTimes(view) } : undefined,
 			);
-			if (!subagent || !hook?.enabled()) return;
-			// omp cleared the presenters synchronously at the start of the render; blocks drawn so far get redrawn.
+		} catch {
+			store.hook?.onView(undefined);
+		}
+	};
+	/** After omp's own gate cleared the presenters: put the main session's back for a subagent view. */
+	const reinstall = mode => {
+		try {
+			if (!isSubagentView(mode) || !store.hook?.enabled()) return;
 			const presenters = mode.session?.extensionRunner?.getTranscriptPresenters?.() ?? [];
 			if (setTranscriptPresenters(presenters)) mode.refreshTranscriptPresentation();
 		} catch {
@@ -70,9 +80,10 @@ export function installSubagentView(): boolean {
 		}
 	};
 	proto.renderInitialMessages = function (this: unknown, ...args: unknown[]) {
+		enter(this);
 		const result = original.apply(this, args);
-		sync(this);
-		return Promise.resolve(result).finally(() => sync(this));
+		reinstall(this); // omp clears the presenters synchronously before its first await
+		return Promise.resolve(result).finally(() => reinstall(this));
 	};
 	store.installed = true;
 	return true;
